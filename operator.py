@@ -5,12 +5,12 @@ import bpy
 from threading import Thread,  Lock
 from space_view3d_point_cloud_visualizer import PCVControl
 
-from .components import Camera
-from .components import StereoFrame
-from .feature import ImageFeature
-from .params import ParamsKITTI, ParamsEuroc
-from .dataset import KITTIOdometry, EuRoCDataset
-from .sptam import SPTAM
+from .stereo_ptam.components import Camera
+from .stereo_ptam.components import StereoFrame
+from .stereo_ptam.feature import ImageFeature
+from .stereo_ptam.params import ParamsKITTI, ParamsEuroc
+from .stereo_ptam.dataset import KITTIOdometry, EuRoCDataset
+from .stereo_ptam.sptam import SPTAM
 
 class PTAM_worker(Thread):
 
@@ -178,7 +178,6 @@ class PTAM_OT_operator(bpy.types.Operator):
     @staticmethod
     def create_pointcloud_object(name):
         mesh = bpy.data.meshes.new("geom_" + name)
-        # mesh.vertex_colors.new()
         obj = bpy.data.objects.new("pointcloud_" + name, mesh)
         col = bpy.data.collections.get("Collection")
         col.objects.link(obj)

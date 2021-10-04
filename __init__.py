@@ -1,15 +1,23 @@
 import bpy
+import sys
+import os
+
+# stereo_ptam is not a module so this is a quick fix to get it working.
+# TODO: ask stereo_ptam creators to make it an installable module.
+sys.path.append(os.path.join(os.path.dirname(__file__), 'stereo_ptam'))
+
 from . import prop
 from . import operator
 from . import ui
+from setuptools import setup
 
 bl_info = {
     "name": "S-PTAM",
     "author": "Laurens Oostwegel",
     "version": (0, 1),
-    "blender": (2, 92, 0),
+    "blender": (2, 93, 0),
     "location": "Scene",
-    "description": "Visualize, edit and export 3D City Models encoded in CityJSON format",
+    "description": "Create point clouds using the Stereo-PTAM algorithm",
     "warning": "",
     "wiki_url": "",
     "category": "SLAM",
