@@ -1,5 +1,5 @@
 # blender_stereo_ptam
-This repository can be used to create point clouds using the Blender environment. It currently uses the Stereo-PTAM algorithm developed by https://github.com/uoip/stereo_ptam. 
+This repository can be used to create point clouds using stereovision in the Blender environment. It currently uses the Stereo-PTAM algorithm developed by https://github.com/uoip/stereo_ptam. 
 
 ## Requirements
 * Blender
