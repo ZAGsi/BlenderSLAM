@@ -1,27 +1,70 @@
 import bpy
 
-class PTAM_PT_gui(bpy.types.Panel):
+class SLAM_template_gui:
     """Creates a Panel in the scene context of properties editor"""
-    bl_idname = "PTAM_PT_gui"
-    bl_label = "PTAM"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "scene"
 
+class SLAM_PT_config_gui(SLAM_template_gui,bpy.types.Panel):
+    bl_idname = "SLAM_PT_config_gui"
+    bl_label = "SLAM"
+
     def draw(self, context):
         layout = self.layout
-
         scene = context.scene
-        props = scene.PTAM_properties
+        config_props = scene.SLAM_config_properties
 
-        layout.label(text="PTAM arguments:")
         row = layout.row(align=True)
-        row.prop(props, "dataset")
+        row.prop(config_props, "is_live")
         row = layout.row(align=True)
-        row.prop(props, "path")
+        row.prop(config_props, "acquisition_method")  # TODO: implement if-statement for rows following this one
         row = layout.row(align=True)
-        row.prop(props, "update_speed")
+        row.prop(config_props, "IP_address")
         row = layout.row(align=True)
-        row.prop(props, "max_images")
+        row.prop(config_props, "USB_address")
         row = layout.row(align=True)
-        row.operator("ptam.startalgorithm")
+        row.prop(config_props, "path")
+        row = layout.row(align=True)
+        row.prop(config_props, "standard_set")  # previous: dataset
+
+
+class SLAM_PT_calibration_gui(SLAM_template_gui, bpy.types.Panel):
+    bl_parent_id = "SLAM_PT_config_gui"
+    bl_label = "Calibration configuration"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        cal_props = scene.calibration_properties
+
+        row = layout.row(align=True)
+        row.prop(cal_props, "calibrated")
+        row = layout.row(align=True)
+        row.prop(cal_props, "path")
+        row.operator("slam.calibrate")
+
+
+class SLAM_PT_gui(SLAM_template_gui, bpy.types.Panel):
+    bl_parent_id = "SLAM_PT_config_gui"
+    bl_label = "SLAM configuration"
+    bl_options = {"DEFAULT_CLOSED"}
+
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        SLAM_props = scene.SLAM_properties
+
+        row = layout.row(align=True)
+        row.prop(SLAM_props, "SLAM_method")
+        row = layout.row(align=True)
+        row.prop(SLAM_props, "output_path")
+        row = layout.row(align=True)
+        row.prop(SLAM_props, "viz")
+        row = layout.row(align=True)
+        row.prop(SLAM_props, "update_speed")
+        row = layout.row(align=True)
+        row.prop(SLAM_props, "max_images")
+        row.operator("slam.startalgorithm")

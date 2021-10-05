@@ -12,14 +12,15 @@ from ..SLAM.stereo_ptam.params import ParamsKITTI, ParamsEuroc
 from ..SLAM.stereo_ptam.dataset import KITTIOdometry, EuRoCDataset
 from ..SLAM.stereo_ptam.sptam import SPTAM
 
-class PTAM_worker(Thread):
+class SLAM_worker(Thread):
 
     def __init__(self, l):
         Thread.__init__(self)
         self.lock = l
 
         self.scene = bpy.context.scene
-        self.props = self.scene.PTAM_properties
+        self.config = self.scene.SLAM_config_properties
+        self.props = self.scene.SLAM_properties
 
         self.params = None
         self.dataset = None
@@ -36,12 +37,12 @@ class PTAM_worker(Thread):
     def start(self):
         dataset = None
         params = None
-        if self.props.dataset.lower() == 'kitti':
+        if self.config.standard_set.lower() == 'kitti':
             params = ParamsKITTI()
-            dataset = KITTIOdometry(self.props.path)
+            dataset = KITTIOdometry(self.config.path)
         elif self.props.dataset.lower() == 'euroc':
             params = ParamsEuroc()
-            dataset = EuRoCDataset(self.props.path)
+            dataset = EuRoCDataset(self.config.path)
 
         self.sptam = SPTAM(params)
 
@@ -109,9 +110,9 @@ class PTAM_worker(Thread):
         self.is_running = False
         self.sptam.stop()
 
-class PTAM_OT_operator(bpy.types.Operator):
-    bl_idname = "ptam.startalgorithm"
-    bl_label = "Start PTAM algorithm"
+class SLAM_OT_operator(bpy.types.Operator):
+    bl_idname = "slam.startalgorithm"
+    bl_label = "Start SLAM algorithm"
     bl_context = "scene"
 
     t = None
@@ -156,7 +157,7 @@ class PTAM_OT_operator(bpy.types.Operator):
             c.draw(vertices, normals, colours)
 
         if process_finished:
-            print("PTAM finished")
+            print("SLAM finished")
             context.window_manager.event_timer_remove(self.timer)
             self.t.stop()
             return {'FINISHED'}
@@ -165,9 +166,9 @@ class PTAM_OT_operator(bpy.types.Operator):
 
     def execute(self, context):
         self.scene = context.scene
-        self.props = self.scene.PTAM_properties
+        self.props = self.scene.SLAM_properties
         self.lock = Lock()
-        self.t = PTAM_worker(self.lock)
+        self.t = SLAM_worker(self.lock)
         self.t.start()
 
         wm = context.window_manager
