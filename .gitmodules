@@ -1,3 +1,3 @@
-[submodule "stereo_ptam"]
+[submodule "SLAM/stereo_ptam"]
 	path = SLAM/stereo_ptam
 	url = https://github.com/uoip/stereo_ptam.git
