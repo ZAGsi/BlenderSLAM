@@ -4,7 +4,7 @@ This repository can be used to create point clouds using stereovision in the Ble
 ## Requirements
 * Blender
 * Blender add-on Point Cloud Visualizer: https://github.com/uhlik/bpy
-* Python modules: opencv-contrib-python; numpy; 
+* Python modules: opencv-contrib-python; numpy; ruamel.yaml
 * g2opy: https://github.com/uoip/g2opy (+requirements)
 
 ## Installation

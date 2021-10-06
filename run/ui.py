@@ -40,9 +40,15 @@ class SLAM_PT_calibration_gui(SLAM_template_gui, bpy.types.Panel):
         cal_props = scene.calibration_properties
 
         row = layout.row(align=True)
-        row.prop(cal_props, "calibrated")
+        row.prop(cal_props, "is_calibrated")
         row = layout.row(align=True)
         row.prop(cal_props, "path")
+        row = layout.row(align=True)
+        row.label(text="Chessboard dimensions")
+        row = layout.row(align=True)
+        row.prop(cal_props, "chess_dim_w")
+        row.prop(cal_props, "chess_dim_h")
+        row = layout.row(align=True)
         row.operator("slam.calibrate")
 
 
@@ -67,4 +73,5 @@ class SLAM_PT_gui(SLAM_template_gui, bpy.types.Panel):
         row.prop(SLAM_props, "update_speed")
         row = layout.row(align=True)
         row.prop(SLAM_props, "max_images")
+        row = layout.row(align=True)
         row.operator("slam.startalgorithm")
