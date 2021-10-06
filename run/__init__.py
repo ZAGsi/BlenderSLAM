@@ -8,7 +8,6 @@ classes = (
     prop.SLAM_properties,
     operator.SLAM_OT_operator,
     ui.SLAM_PT_config_gui,
-    ui.SLAM_PT_calibration_gui,
     ui.SLAM_PT_gui
 )
 

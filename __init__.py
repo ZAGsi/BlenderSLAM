@@ -19,8 +19,8 @@ bl_info = {
     "category": "SLAM",
 }
 
-modules = {"calibration": None,
-           "run": None}
+modules = {"run": None,
+           "calibration": None}
 
 
 for name in modules.keys():

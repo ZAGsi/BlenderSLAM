@@ -18,44 +18,31 @@ class SLAM_PT_config_gui(SLAM_template_gui,bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(config_props, "is_live")
         row = layout.row(align=True)
+
         row.prop(config_props, "acquisition_method")  # TODO: implement if-statement for rows following this one
+        if not config_props.is_live:
+            row.enabled = False
+
         row = layout.row(align=True)
         row.prop(config_props, "IP_address")
+        if not config_props.is_live or config_props.acquisition_method != "IP":
+            row.enabled = False
+
         row = layout.row(align=True)
         row.prop(config_props, "USB_address")
+        if not config_props.is_live or config_props.acquisition_method != "USB":
+            row.enabled = False
+
         row = layout.row(align=True)
         row.prop(config_props, "path")
         row = layout.row(align=True)
         row.prop(config_props, "standard_set")  # previous: dataset
 
-
-class SLAM_PT_calibration_gui(SLAM_template_gui, bpy.types.Panel):
-    bl_parent_id = "SLAM_PT_config_gui"
-    bl_label = "Calibration configuration"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw(self, context):
-        layout = self.layout
-        scene = context.scene
-        cal_props = scene.calibration_properties
-
-        row = layout.row(align=True)
-        row.prop(cal_props, "is_calibrated")
-        row = layout.row(align=True)
-        row.prop(cal_props, "path")
-        row = layout.row(align=True)
-        row.label(text="Chessboard dimensions")
-        row = layout.row(align=True)
-        row.prop(cal_props, "chess_dim_w")
-        row.prop(cal_props, "chess_dim_h")
-        row = layout.row(align=True)
-        row.operator("slam.calibrate")
-
-
 class SLAM_PT_gui(SLAM_template_gui, bpy.types.Panel):
     bl_parent_id = "SLAM_PT_config_gui"
     bl_label = "SLAM configuration"
     bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 1
 
 
     def draw(self, context):
