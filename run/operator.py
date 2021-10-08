@@ -1,11 +1,17 @@
-import numpy as np
-import time
-import g2o
 import bpy
+import os
+import time
+
+import numpy as np
+import g2o
+import cv2
+
 from threading import Thread,  Lock
 from space_view3d_point_cloud_visualizer import PCVControl
+from ruamel import yaml
 
-from ..SLAM.stereo_ptam.components import Camera
+from ..SLAM.stereo_ptam import components
+from ..SLAM.stereo_ptam import dataset
 from ..SLAM.stereo_ptam.components import StereoFrame
 from ..SLAM.stereo_ptam.feature import ImageFeature
 from ..SLAM.stereo_ptam.params import ParamsKITTI, ParamsEuroc
@@ -20,6 +26,7 @@ class SLAM_worker(Thread):
 
         self.scene = bpy.context.scene
         self.config = self.scene.SLAM_config_properties
+        self.calibration = self.scene.calibration_properties
         self.props = self.scene.SLAM_properties
 
         self.params = None
@@ -46,7 +53,7 @@ class SLAM_worker(Thread):
 
         self.sptam = SPTAM(params)
 
-        self.cam = Camera(
+        self.cam = components.Camera(
             dataset.cam.fx, dataset.cam.fy, dataset.cam.cx, dataset.cam.cy,
             dataset.cam.width, dataset.cam.height,
             params.frustum_near, params.frustum_far,
@@ -145,11 +152,11 @@ class SLAM_OT_operator(bpy.types.Operator):
             # for pts in pts_list[self.last_idx:]:
             for pts in pts_list:
                 for pt in pts:
-                    position, normal, colour = pt
+                    p, n, c = pt
 
-                    vertices.append([position[0], position[2], position[1]])
-                    normals.append([normal[0], normal[2], normal[1]])
-                    colours.append([colour[0], colour[1], colour[2]])
+                    vertices.append([p[0], p[2], p[1]])
+                    normals.append([n[0], n[2], n[1]])
+                    colours.append([c[0], c[1], c[2]])
                 self.last_idx += 1
             obj = self.create_pointcloud_object(f"pointcloud_{self.pc_idx}")
             self.pc_idx += 1
@@ -184,3 +191,77 @@ class SLAM_OT_operator(bpy.types.Operator):
         col.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
         return obj
+
+
+# Similar to EuRoCDataset, but with YAML file from validation
+class CustomDataset(object):  # Stereo + IMU
+    '''
+    path example: 'path/to/your/EuRoC Mav dataset/MH_01_easy'
+    '''
+
+    def __init__(self, path, rectify=True):
+        config = self.import_calibration_values(self.get_calibration_file(path))
+        rect_l, rect_r, proj_mat_l, proj_mat_r, Q, roiL, roiR = cv2.stereoRectify(**config)
+        self.left_cam = dataset.Camera(
+            width=config["cam0"]["imageSize"][0], height=config["cam0"]["imageSize"][0],
+            intrinsic_matrix=config["cam0"]["cameraMatrix1"],
+            undistort_rectify=rectify,
+            distortion_coeffs=config["cam0"]["distCoeffs1"],
+            rectification_matrix=rect_l,
+            projection_matrix=proj_mat_l,
+            extrinsic_matrix=np.identity(4)
+        )
+        self.right_cam = dataset.Camera(
+            width=config["cam1"]["imageSize"][0], height=config["cam0"]["imageSize"][0],
+            intrinsic_matrix=config["cam1"]["cameraMatrix1"],
+            undistort_rectify=rectify,
+            distortion_coeffs=config["cam0"]["distCoeffs1"],
+            rectification_matrix=rect_r,
+            projection_matrix=proj_mat_r,
+            extrinsic_matrix= np.vstack((np.hstack((config["R"], config["T"])), [0, 0 ,0, 1]))
+        )
+
+        # TODO: modify this code to make things work.
+        # Right now, the calibration files are retrieved from the YAML file.
+        # Maybe this should be imported to some config already.
+        path = os.path.expanduser(path)
+        self.left = dataset.ImageReader(
+            *self.list_imgs(os.path.join(path, 'left')),
+            self.left_cam)
+        self.right = dataset.ImageReader(
+            *self.list_imgs(os.path.join(path, 'right')),
+            self.right_cam)
+        assert len(self.left) == len(self.right)
+        self.timestamps = self.left.timestamps
+
+        self.cam = dataset.StereoCamera(self.left_cam, self.right_cam)
+
+    def list_imgs(self, dir):
+        xs = [_ for _ in os.listdir(dir) if _.endswith('.png')]
+        xs = sorted(xs, key=lambda x: float(x[:-4]))
+        timestamps = [float(_[:-4]) * 1e-9 for _ in xs]
+        return [os.path.join(dir, _) for _ in xs], timestamps
+
+    def __len__(self):
+        return len(self.left)
+
+    @staticmethod
+    def import_calibration_values(YAML):
+        with open(YAML, 'r') as stream:
+            calibration = yaml.safe_load(stream)
+
+        rectify_scale = 0.3
+        config = {"cameraMatrix1": np.matrix(calibration["cam0"]["intrinsics"]),
+                  "distCoeffs1": np.matrix(calibration["cam0"]["distortion_coeffs"]),
+                  "cameraMatrix2": np.matrix(calibration["cam1"]["intrinsics"]),
+                  "distCoeffs2": np.matrix(calibration["cam1"]["distortion_coeffs"]),
+                  "imageSize": np.array(calibration['cam0']['resolution']),
+                  "R": np.matrix(calibration["cam1"]["rotation"]),
+                  "T": np.matrix(calibration["cam1"]["translation"]),
+                  "newImageSize": (0, 0),
+                  "alpha": rectify_scale}
+        return config
+
+    @staticmethod
+    def get_calibration_file(path):
+        return os.path.join(path, "stereo_parameters.yaml")
