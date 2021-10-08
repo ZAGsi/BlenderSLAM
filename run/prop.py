@@ -3,13 +3,13 @@ import bpy
 
 class SLAM_config_properties(bpy.types.PropertyGroup):
     is_live: bpy.props.BoolProperty(name="Live capture", default=False)
-    acquisition_method: bpy.props.EnumProperty(name="Acquisition method", items=[
+    acquisition_method: bpy.props.EnumProperty(name="Acquisition method", default="TEST", items=[
         ("IP", "IP-address", ""),
-        ("USB", "USB", "")
-    ])
+        ("USB", "USB", ""),
+        ("TEST", "Test environment", "")])
     IP_address: bpy.props.StringProperty(name="IP Address", default="192.168.0.0")
-    USB_address: bpy.props.StringProperty(name="USB Port", default="")
-    path: bpy.props.StringProperty(name="Dataset path", default="~/Documents/KITTI/dataset/sequences/00")
+    USB_port: bpy.props.StringProperty(name="USB Port", default="")
+    path: bpy.props.StringProperty(name="Dataset path", default="", subtype='DIR_PATH')
     standard_set: bpy.props.EnumProperty(name="Standard dataset", description="",
                                          items=[("NO", "No standard set", ""),
                                                 ("KITTI", "KITTI", "")

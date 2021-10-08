@@ -9,9 +9,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'SLAM', 'stereo_ptam'))
 
 bl_info = {
     "name": "BlenderSLAM",
-    "author": "Laurens Oostwegel",
+    "author": "Laurens J.N. Oostwegel",
     "version": (0, 2),
-    "blender": (2, 93, 0),
+    "blender": (2, 92, 0),
     "location": "Scene",
     "description": "Create point clouds using a SLAM algorithm (Stereo-PTAM)",
     "warning": "",

@@ -29,7 +29,7 @@ class SLAM_PT_config_gui(SLAM_template_gui,bpy.types.Panel):
             row.enabled = False
 
         row = layout.row(align=True)
-        row.prop(config_props, "USB_address")
+        row.prop(config_props, "USB_port")
         if not config_props.is_live or config_props.acquisition_method != "USB":
             row.enabled = False
 
