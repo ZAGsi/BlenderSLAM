@@ -24,7 +24,8 @@ class SLAM_worker(Thread):
         Thread.__init__(self)
         self.lock = l
 
-        self.scene = bpy.context.scene
+        self.context = bpy.context
+        self.scene = self.context.scene
         self.config = self.scene.SLAM_config_properties
         self.calibration = self.scene.calibration_properties
         self.props = self.scene.SLAM_properties
@@ -42,15 +43,15 @@ class SLAM_worker(Thread):
 
 
     def start(self):
-        dataset = None
-        params = None
         if self.config.standard_set.lower() == 'kitti':
-            params = ParamsKITTI()
+            params = ParamsKITTI(self.props.feature_descriptor)
             dataset = KITTIOdometry(self.config.path)
-        elif self.props.dataset.lower() == 'euroc':
+        elif self.config.standard_set.lower() == 'euroc':
             params = ParamsEuroc()
             dataset = EuRoCDataset(self.config.path)
-
+        else:
+            params = ParamsKITTI(self.props.feature_descriptor)  # TODO: maybe have a custom Params creator?
+            dataset = CustomDataset(self.context)
         self.sptam = SPTAM(params)
 
         self.cam = components.Camera(
@@ -87,7 +88,11 @@ class SLAM_worker(Thread):
             frame = StereoFrame(i, g2o.Isometry3d(), featurel, featurer, self.cam, timestamp=timestamp)
 
             if not self.sptam.is_initialized():
-                self.sptam.initialize(frame)
+                try:
+                    self.sptam.initialize(frame)
+                except AssertionError:
+                    print(f'unable to match points in image {i:06d}')
+                    continue
             else:
                 self.sptam.track(frame)
 
@@ -196,51 +201,52 @@ class SLAM_OT_operator(bpy.types.Operator):
 # Similar to EuRoCDataset, but with YAML file from validation
 class CustomDataset(object):  # Stereo + IMU
     '''
-    path example: 'path/to/your/EuRoC Mav dataset/MH_01_easy'
+    path example: 'path/to/your/dataset/'
     '''
 
-    def __init__(self, path, rectify=True):
-        config = self.import_calibration_values(self.get_calibration_file(path))
+    def __init__(self, context, rectify=True):
+        sequence_path = context.scene.SLAM_config_properties.path
+        calibration_path = context.scene.calibration_properties.path
+        config = self.import_calibration_values(self.get_calibration_file(calibration_path))
         rect_l, rect_r, proj_mat_l, proj_mat_r, Q, roiL, roiR = cv2.stereoRectify(**config)
         self.left_cam = dataset.Camera(
-            width=config["cam0"]["imageSize"][0], height=config["cam0"]["imageSize"][0],
-            intrinsic_matrix=config["cam0"]["cameraMatrix1"],
+            width=config["imageSize"][0], height=config["imageSize"][1],
+            intrinsic_matrix=config["cameraMatrix1"],
             undistort_rectify=rectify,
-            distortion_coeffs=config["cam0"]["distCoeffs1"],
+            distortion_coeffs=config["distCoeffs1"],
             rectification_matrix=rect_l,
             projection_matrix=proj_mat_l,
             extrinsic_matrix=np.identity(4)
         )
         self.right_cam = dataset.Camera(
-            width=config["cam1"]["imageSize"][0], height=config["cam0"]["imageSize"][0],
-            intrinsic_matrix=config["cam1"]["cameraMatrix1"],
+            width=config["imageSize"][0], height=config["imageSize"][1],
+            intrinsic_matrix=config["cameraMatrix2"],
             undistort_rectify=rectify,
-            distortion_coeffs=config["cam0"]["distCoeffs1"],
+            distortion_coeffs=config["distCoeffs2"],
             rectification_matrix=rect_r,
             projection_matrix=proj_mat_r,
-            extrinsic_matrix= np.vstack((np.hstack((config["R"], config["T"])), [0, 0 ,0, 1]))
+            extrinsic_matrix=np.vstack((np.hstack((config["R"], config["T"])), [0, 0, 0, 1]))
         )
 
-        # TODO: modify this code to make things work.
-        # Right now, the calibration files are retrieved from the YAML file.
-        # Maybe this should be imported to some config already.
-        path = os.path.expanduser(path)
+        timestamps = np.loadtxt(os.path.join(sequence_path, 'times.txt'))
+        sequence_path = os.path.expanduser(sequence_path)
         self.left = dataset.ImageReader(
-            *self.list_imgs(os.path.join(path, 'left')),
-            self.left_cam)
+            self.listdir(os.path.join(sequence_path, 'left')),
+            timestamps)
         self.right = dataset.ImageReader(
-            *self.list_imgs(os.path.join(path, 'right')),
-            self.right_cam)
+            self.listdir(os.path.join(sequence_path, 'right')),
+            timestamps)
         assert len(self.left) == len(self.right)
         self.timestamps = self.left.timestamps
 
         self.cam = dataset.StereoCamera(self.left_cam, self.right_cam)
 
-    def list_imgs(self, dir):
-        xs = [_ for _ in os.listdir(dir) if _.endswith('.png')]
-        xs = sorted(xs, key=lambda x: float(x[:-4]))
-        timestamps = [float(_[:-4]) * 1e-9 for _ in xs]
-        return [os.path.join(dir, _) for _ in xs], timestamps
+    def listdir(self, dir):
+        files = [_ for _ in os.listdir(dir) if _.endswith('.png')]
+        return [os.path.join(dir, _) for _ in self.sort(files)]
+
+    def sort(self, xs):
+        return sorted(xs, key=lambda x:float(x[:-4]))
 
     def __len__(self):
         return len(self.left)

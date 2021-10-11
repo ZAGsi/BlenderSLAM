@@ -53,6 +53,8 @@ class SLAM_PT_gui(SLAM_template_gui, bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(SLAM_props, "SLAM_method")
         row = layout.row(align=True)
+        row.prop(SLAM_props, "feature_descriptor")
+        row = layout.row(align=True)
         row.prop(SLAM_props, "output_path")
         row = layout.row(align=True)
         row.prop(SLAM_props, "viz")
