@@ -67,6 +67,8 @@ class SLAM_worker(Thread):
             self.max_images = self.props.max_images
 
         self.is_running = True
+        self.saved_keyframes = set()
+
         Thread.start(self)
 
     def stop(self):
@@ -103,9 +105,12 @@ class SLAM_worker(Thread):
             print()
 
             pts = []
-            for m in self.sptam.reference.measurements():
-                if m.from_triangulation():
-                    pts.append([m.mappoint.position, m.mappoint.normal, m.mappoint.color])
+            # for kf in self.sptam.graph.keyframes()[-20:]:
+            #     if kf.id not in self.saved_keyframes:
+            #         self.saved_keyframes.add(kf.id)
+            #         for m in kf.measurements():
+            #             if m.from_triangulation():
+            #                 pts.append([m.mappoint.position, m.mappoint.normal, m.mappoint.color])
 
             with self.lock:
                 self.pts.append(pts)

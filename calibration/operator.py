@@ -1,5 +1,6 @@
 import bpy
 import addon_utils
+
 import os
 import requests
 
@@ -7,7 +8,6 @@ import cv2
 import numpy as np
 from ruamel import yaml
 from tqdm import tqdm
-
 # from utils import imshow_concat
 
 class calibrate_OT_operator(bpy.types.Operator):
@@ -244,7 +244,7 @@ class Calibrate:
         retL, cornersL = cv2.findChessboardCorners(outputL, self.CHESSBOARD_DIM, None)
 
         # If not found return none
-        if not retR and retL:
+        if not retR or retL:
             print('Corners not found')
             # if self.live:
             #     cv2.waitKey(0)
@@ -252,9 +252,6 @@ class Calibrate:
 
         cv2.cornerSubPix(imgR_gray, cornersR, (11, 11), (-1, -1), self.criteria)
         cv2.cornerSubPix(imgL_gray, cornersL, (11, 11), (-1, -1), self.criteria)
-
-        cv2.drawChessboardCorners(outputR, self.CHESSBOARD_DIM, cornersR, retR)
-        cv2.drawChessboardCorners(outputL, self.CHESSBOARD_DIM, cornersL, retL)
 
         # if self.live:
         #     imshow_concat('Corners', outputL, outputR)

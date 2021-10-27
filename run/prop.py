@@ -12,7 +12,8 @@ class SLAM_config_properties(bpy.types.PropertyGroup):
     path: bpy.props.StringProperty(name="Dataset path", default="", subtype='DIR_PATH')
     standard_set: bpy.props.EnumProperty(name="Standard dataset", description="",
                                          items=[("NO", "No standard set", ""),
-                                                ("KITTI", "KITTI", "")
+                                                ("KITTI", "KITTI", ""),
+                                                ("EuRoC", "EuRoC", "")
                                                 ])
 
 
