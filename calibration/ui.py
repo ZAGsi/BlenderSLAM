@@ -22,6 +22,8 @@ class SLAM_PT_calibration_gui(SLAM_template_gui, bpy.types.Panel):
             row.prop(cal_props, "chess_dim_w")
             row.prop(cal_props, "chess_dim_h")
             row = layout.row(align=True)
+            row.prop(cal_props, "n_imgs")
+            row = layout.row(align=True)
             row.operator("slam.calibrate")
         elif cal_props.all_images_captured:
             row = layout.row(align=True)
