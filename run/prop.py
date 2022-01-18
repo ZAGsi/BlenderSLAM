@@ -1,31 +1,32 @@
-import bpy
+from bpy.types import PropertyGroup
+from bpy.props import BoolProperty, EnumProperty, StringProperty, FloatProperty, IntProperty
 
 
-class SLAM_config_properties(bpy.types.PropertyGroup):
-    is_live: bpy.props.BoolProperty(name="Live capture", default=False)
-    acquisition_method: bpy.props.EnumProperty(name="Acquisition method", default="TEST", items=[
+class SLAMAcquisitionProperties(PropertyGroup):
+    is_live: BoolProperty(name="Live capture", default=True)
+    acquisition_method: EnumProperty(name="Acquisition method", default="IP", items=[
         ("IP", "IP-address", ""),
         ("USB", "USB", ""),
         ("TEST", "Test environment", "")])
-    IP_address: bpy.props.StringProperty(name="IP Address", default="192.168.0.0")
-    USB_port: bpy.props.StringProperty(name="USB Port", default="")
-    path: bpy.props.StringProperty(name="Dataset path", default="", subtype='DIR_PATH')
-    standard_set: bpy.props.EnumProperty(name="Standard dataset", description="",
+    IP_address: StringProperty(name="IP Address", default="192.168.0.0")
+    USB_port: StringProperty(name="USB Port", default="")
+    path: StringProperty(name="Dataset path", default="", subtype='DIR_PATH')
+    standard_set: EnumProperty(name="Standard dataset", description="",
                                          items=[("NO", "No standard set", ""),
                                                 ("KITTI", "KITTI", ""),
                                                 ("EuRoC", "EuRoC", "")
                                                 ])
 
 
-class SLAM_properties(bpy.types.PropertyGroup):
-    SLAM_method: bpy.props.EnumProperty(name="method", description="",
+class SLAMSettings(PropertyGroup):
+    SLAM_method: EnumProperty(name="method", description="",
                                         items=[("STEREOPTAM", "Stereo-PTAM", "")
                                                ])
-    feature_descriptor: bpy.props.EnumProperty(name="Feature descriptor", default="GFTT-BRIEF", items=[
+    feature_descriptor: EnumProperty(name="Feature descriptor", default="GFTT-BRIEF", items=[
         ("GFTT-BRIEF", "GFTT-BRIEF", ""),
         ("GFTT-BRISK", "GFTT-BRISK", ""),
         ("ORB-ORB", "ORB-ORB", "")])
-    output_path: bpy.props.StringProperty(name="Output file path", default="", subtype='FILE_PATH')
-    viz: bpy.props.BoolProperty(name="Visualisation", default=True)
-    update_speed: bpy.props.FloatProperty(name="Update speed", default=0.5)
-    max_images: bpy.props.IntProperty(name="Max images", default=0)
+    output_path: StringProperty(name="Output file path", default="", subtype='FILE_PATH')
+    viz: BoolProperty(name="Visualisation", default=True)
+    update_speed: FloatProperty(name="Update speed in seconds", default=0.5)
+    max_images: IntProperty(name="Max images", default=0)

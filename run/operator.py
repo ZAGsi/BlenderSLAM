@@ -1,6 +1,6 @@
-import bpy
 import os
 import time
+import bpy
 
 import numpy as np
 import g2o
@@ -9,6 +9,7 @@ import cv2
 from threading import Thread,  Lock
 from space_view3d_point_cloud_visualizer import PCVControl
 from ruamel import yaml
+from mathutils import Matrix
 
 from ..SLAM.stereo_ptam import components
 from ..SLAM.stereo_ptam import dataset
@@ -26,9 +27,9 @@ class SLAM_worker(Thread):
 
         self.context = bpy.context
         self.scene = self.context.scene
-        self.config = self.scene.SLAM_config_properties
-        self.calibration = self.scene.calibration_properties
-        self.props = self.scene.SLAM_properties
+        self.config = self.scene.SLAMAcquisitionProperties
+        self.calibration = self.scene.CalibrationProperties
+        self.props = self.scene.SLAMSettings
 
         self.params = None
         self.dataset = None
@@ -90,11 +91,12 @@ class SLAM_worker(Thread):
             frame = StereoFrame(i, g2o.Isometry3d(), featurel, featurer, self.cam, timestamp=timestamp)
 
             if not self.sptam.is_initialized():
-                try:
-                    self.sptam.initialize(frame)
-                except AssertionError:
-                    print(f'unable to match points in image {i:06d}')
-                    continue
+                self.sptam.initialize(frame)
+                # try:
+                #     self.sptam.initialize(frame)
+                # except AssertionError:
+                #     print(f'unable to match points in image {i:06d}')
+                #     continue
             else:
                 self.sptam.track(frame)
 
@@ -105,12 +107,12 @@ class SLAM_worker(Thread):
             print()
 
             pts = []
-            # for kf in self.sptam.graph.keyframes()[-20:]:
-            #     if kf.id not in self.saved_keyframes:
-            #         self.saved_keyframes.add(kf.id)
-            #         for m in kf.measurements():
-            #             if m.from_triangulation():
-            #                 pts.append([m.mappoint.position, m.mappoint.normal, m.mappoint.color])
+            for kf in self.sptam.graph.keyframes()[-20:]:
+                if kf.id not in self.saved_keyframes:
+                    self.saved_keyframes.add(kf.id)
+                    for m in kf.measurements():
+                        if m.from_triangulation():
+                            pts.append([m.mappoint.position, m.mappoint.normal, m.mappoint.color])
 
             with self.lock:
                 self.pts.append(pts)
@@ -127,8 +129,8 @@ class SLAM_worker(Thread):
         self.is_running = False
         self.sptam.stop()
 
-class SLAM_OT_operator(bpy.types.Operator):
-    bl_idname = "slam.startalgorithm"
+class RunSLAM(bpy.types.Operator):
+    bl_idname = "slam.run_slam"
     bl_label = "Start SLAM algorithm"
     bl_context = "scene"
 
@@ -156,6 +158,8 @@ class SLAM_OT_operator(bpy.types.Operator):
                 if len(self.t.pts) < 1:
                     return {'PASS_THROUGH'}
                 pts_list, self.t.pts = self.t.pts, []
+                current_orientation = self.t.current_orientation.matrix()
+                current_position = self.t.current_position
             vertices = []
             normals = []
             colours = []
@@ -168,10 +172,17 @@ class SLAM_OT_operator(bpy.types.Operator):
                     normals.append([n[0], n[2], n[1]])
                     colours.append([c[0], c[1], c[2]])
                 self.last_idx += 1
-            obj = self.create_pointcloud_object(f"pointcloud_{self.pc_idx}")
+            sc_obj = self.create_pointcloud_object(f"sparse_{self.pc_idx}")
+            dc_obj = self.create_pointcloud_object(f"dense_{self.pc_idx}")
+
+            dc_obj.location = current_position
+            dc_obj.rotation_euler = Matrix(current_orientation).to_euler()
+
             self.pc_idx += 1
-            c = PCVControl(obj)
-            c.draw(vertices, normals, colours)
+            sc = PCVControl(sc_obj)
+            sc.draw(vertices, normals, colours)
+            # dc = PCVControl(dc_obj)
+            # dc.draw(vertices, normals, colours)
 
         if process_finished:
             print("SLAM finished")
@@ -183,7 +194,7 @@ class SLAM_OT_operator(bpy.types.Operator):
 
     def execute(self, context):
         self.scene = context.scene
-        self.props = self.scene.SLAM_properties
+        self.props = self.scene.SLAMSettings
         self.lock = Lock()
         self.t = SLAM_worker(self.lock)
         self.t.start()
@@ -210,8 +221,8 @@ class CustomDataset(object):  # Stereo + IMU
     '''
 
     def __init__(self, context, rectify=True):
-        sequence_path = context.scene.SLAM_config_properties.path
-        calibration_path = context.scene.calibration_properties.path
+        sequence_path = context.scene.SLAMAcquisitionProperties.path
+        calibration_path = context.scene.CalibrationProperties.path
         config = self.import_calibration_values(self.get_calibration_file(calibration_path))
         rect_l, rect_r, proj_mat_l, proj_mat_r, Q, roiL, roiR = cv2.stereoRectify(**config)
         self.left_cam = dataset.Camera(
@@ -247,7 +258,7 @@ class CustomDataset(object):  # Stereo + IMU
         self.cam = dataset.StereoCamera(self.left_cam, self.right_cam)
 
     def listdir(self, dir):
-        files = [_ for _ in os.listdir(dir) if _.endswith('.png')]
+        files = [_ for _ in os.listdir(dir) if _.endswith('.jpg')]
         return [os.path.join(dir, _) for _ in self.sort(files)]
 
     def sort(self, xs):

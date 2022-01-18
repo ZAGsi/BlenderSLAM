@@ -1,4 +1,4 @@
-import bpy
+from bpy.types import Panel
 
 class SLAM_template_gui:
     """Creates a Panel in the scene context of properties editor"""
@@ -6,61 +6,79 @@ class SLAM_template_gui:
     bl_region_type = "WINDOW"
     bl_context = "scene"
 
-class SLAM_PT_config_gui(SLAM_template_gui,bpy.types.Panel):
-    bl_idname = "SLAM_PT_config_gui"
+
+class SLAMGui(SLAM_template_gui, Panel):
+    bl_idname = "SLAM_PT_gui"
     bl_label = "SLAM"
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        config_props = scene.SLAM_config_properties
-
+        calibration_props = scene.CalibrationProperties
+        slam_props = scene.SLAMAcquisitionProperties
         row = layout.row(align=True)
-        row.prop(config_props, "is_live")
-        row = layout.row(align=True)
-
-        row.prop(config_props, "acquisition_method")  # TODO: implement if-statement for rows following this one
-        if not config_props.is_live:
+        row.operator("slam.run_slam")
+        if not calibration_props.is_calibrated and slam_props.standard_set == "NO":
             row.enabled = False
+            row = layout.row(align=True)
+            row.label(text="Calibrate first before SLAM can be run.")
 
-        row = layout.row(align=True)
-        row.prop(config_props, "IP_address")
-        if not config_props.is_live or config_props.acquisition_method != "IP":
-            row.enabled = False
 
-        row = layout.row(align=True)
-        row.prop(config_props, "USB_port")
-        if not config_props.is_live or config_props.acquisition_method != "USB":
-            row.enabled = False
-
-        row = layout.row(align=True)
-        row.prop(config_props, "path")
-        row = layout.row(align=True)
-        row.prop(config_props, "standard_set")  # previous: dataset
-
-class SLAM_PT_gui(SLAM_template_gui, bpy.types.Panel):
-    bl_parent_id = "SLAM_PT_config_gui"
-    bl_label = "SLAM configuration"
+class AcquisitionGui(SLAM_template_gui, Panel):
+    bl_parent_id = "SLAM_PT_gui"
+    bl_label = "Acquisition settings"
     bl_options = {"DEFAULT_CLOSED"}
-    bl_order = 1
-
+    bl_order = 3
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        SLAM_props = scene.SLAM_properties
+        acquisition_props = scene.SLAMAcquisitionProperties
 
         row = layout.row(align=True)
-        row.prop(SLAM_props, "SLAM_method")
+        row.prop(acquisition_props, "is_live")
         row = layout.row(align=True)
-        row.prop(SLAM_props, "feature_descriptor")
+
+        row.prop(acquisition_props, "acquisition_method")
+        if not acquisition_props.is_live:
+            row.enabled = False
+
         row = layout.row(align=True)
-        row.prop(SLAM_props, "output_path")
+        row.prop(acquisition_props, "IP_address")
+        if not acquisition_props.is_live or acquisition_props.acquisition_method != "IP":
+            row.enabled = False            
+
         row = layout.row(align=True)
-        row.prop(SLAM_props, "viz")
+        row.prop(acquisition_props, "USB_port")
+        if not acquisition_props.is_live or acquisition_props.acquisition_method != "USB":
+            row.enabled = False
+
         row = layout.row(align=True)
-        row.prop(SLAM_props, "update_speed")
+        row.prop(acquisition_props, "path")
         row = layout.row(align=True)
-        row.prop(SLAM_props, "max_images")
+        row.prop(acquisition_props, "standard_set")  # previous: dataset
+
+
+class SLAMSettingsGui(SLAM_template_gui, Panel):
+    bl_parent_id = "SLAM_PT_gui"
+    bl_label = "SLAM configuration"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 2
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        slam_settings = scene.SLAMSettings
+
         row = layout.row(align=True)
-        row.operator("slam.startalgorithm")
+        row.prop(slam_settings, "SLAM_method")
+        row = layout.row(align=True)
+        row.prop(slam_settings, "feature_descriptor")
+        row = layout.row(align=True)
+        row.prop(slam_settings, "output_path")
+        row = layout.row(align=True)
+        row.prop(slam_settings, "viz")
+        row = layout.row(align=True)
+        row.prop(slam_settings, "update_speed")
+        row = layout.row(align=True)
+        row.prop(slam_settings, "max_images")

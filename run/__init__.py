@@ -4,17 +4,18 @@ from . import operator
 from . import ui
 
 classes = (
-    prop.SLAM_config_properties,
-    prop.SLAM_properties,
-    operator.SLAM_OT_operator,
-    ui.SLAM_PT_config_gui,
-    ui.SLAM_PT_gui
+    prop.SLAMAcquisitionProperties,
+    prop.SLAMSettings,
+    operator.RunSLAM,
+    ui.SLAMGui,
+    ui.AcquisitionGui,
+    ui.SLAMSettingsGui
 )
 
 def register():
-    bpy.types.Scene.SLAM_config_properties = bpy.props.PointerProperty(type=prop.SLAM_config_properties)
-    bpy.types.Scene.SLAM_properties = bpy.props.PointerProperty(type=prop.SLAM_properties)
+    bpy.types.Scene.SLAMAcquisitionProperties = bpy.props.PointerProperty(type=prop.SLAMAcquisitionProperties)
+    bpy.types.Scene.SLAMSettings = bpy.props.PointerProperty(type=prop.SLAMSettings)
 
 def unregister():
-    del bpy.types.Scene.SLAM_config_properties
-    del bpy.types.Scene.SLAM_properties
+    del bpy.types.Scene.SLAMAcquisitionProperties
+    del bpy.types.Scene.SLAMSettings
