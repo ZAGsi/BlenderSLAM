@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 from ruamel import yaml
 from tqdm import tqdm
-# from utils import imshow_concat
+
+from . import image_to_plane
 
 class calibrate_OT_operator(bpy.types.Operator):
     bl_idname = "slam.calibrate"
@@ -16,37 +17,36 @@ class calibrate_OT_operator(bpy.types.Operator):
     bl_context = "scene"
 
     def execute(self, context):
-        self.start_calibration(context)
-        addon_utils.enable("io_import_images_as_planes")
+        bpy.ops.slam.start_calibration('INVOKE_DEFAULT')
 
         scene = context.scene
-        is_live = scene.SLAM_config_properties.is_live
-        if is_live:
-            return {"FINISHED"}
-        if scene.calibration_properties.path == "":
+        if scene.CalibrationProperties.path == "":
             print("no (output) path given")
-            self.end_calibration(context)
+            bpy.ops.slam.end_calibration('INVOKE_DEFAULT')
             return {"FINISHED"}
+        if scene.CalibrationProperties.calibration_method == "LIVE":
+            return {"FINISHED"}
+        lp = os.path.join(scene.CalibrationProperties.path, 'left')
+        rp = os.path.join(scene.CalibrationProperties.path, 'right')
+        print(lp, rp)
+
+        if not os.path.exists(rp):
+            os.makedirs(rp)
+        if not os.path.exists(lp):
+            os.makedirs(lp)
 
         bpy.ops.slam.compute_calibration('INVOKE_DEFAULT')
         return {"FINISHED"}
 
-    def start_calibration(self, context):
-        context.scene.calibration_properties.is_calibrating = True
-
-    def end_calibration(self, context):
-        context.scene.calibration_properties.is_calibrating = False
-
-
-class capture_image_OT_operator(bpy.types.Operator):
-    bl_idname = "slam.capture_image"
+class fetch_image_OT_operator(bpy.types.Operator):
+    bl_idname = "slam.fetch_image"
     bl_label = "Capture image"
     bl_context = "scene"
 
     def execute(self, context):
         scene = context.scene
-        cal_props = scene.calibration_properties
-        slam_config_props = scene.SLAM_config_properties
+        cal_props = scene.CalibrationProperties
+        slam_config_props = scene.SLAMAcquisitionProperties
         left_img_path = get_img_path(cal_props.path, 'left', cal_props.current_img_id)
         right_img_path = get_img_path(cal_props.path, 'right', cal_props.current_img_id)
 
@@ -54,8 +54,9 @@ class capture_image_OT_operator(bpy.types.Operator):
         img_l, img_r = None, None
 
         if slam_config_props.acquisition_method == "IP":
-            pass
             # img_l, img_r = self.capture_image_IP(slam_config_props.IP_address, slam_config_props.IP_address)
+            bpy.ops.slam.still('INVOKE_DEFAULT')
+            img_l, img_r = cv2.imread(left_img_path), cv2.imread(right_img_path)  # this is maybe not the best way, Image00 is not always Image00 etc.
         elif slam_config_props.acquisition_method == "USB":
             # TODO: CAPTURE WITH USB
             pass
@@ -64,7 +65,7 @@ class capture_image_OT_operator(bpy.types.Operator):
             img_l, img_r = cv2.imread(left_img_path), cv2.imread(right_img_path)
 
         if img_l is None or img_r is None:
-            print('Capturing images failed...')
+            print(f'Capturing images failed... Image {left_img_path} or Image {right_img_path} was not present')
             return {"FINISHED"}
 
         # SAVE IMG
@@ -72,13 +73,20 @@ class capture_image_OT_operator(bpy.types.Operator):
             cv2.imwrite(left_img_path, img_l)
             cv2.imwrite(right_img_path, img_r)
 
-        # IMPORT IMG IN BLENDER
-        bpy.ops.import_image.to_plane(shader='SHADELESS', height=10,
-                                      files=[{'name': left_img_path}, {'name': right_img_path}])
+        image_importer = image_to_plane.ImageImport(cal_props.res_x, cal_props.res_y)
+        image_importer.change_image(img_l, 'left')
+        image_importer.change_image(img_r, 'right')
+
+        context.view_layer.update()
+        # # IMPORT IMG IN BLENDER
+        # bpy.ops.import_image.to_plane(shader='SHADELESS', height=10,
+        #                               files=[{'name': left_img_path}, {'name': right_img_path}])
         cal_props.is_image_captured = True
         return {"FINISHED"}
 
+    # DEPRICATED #
     def capture_image_IP(self, ip_left, ip_right, auth=('admin', '')):
+        bpy.ops.slam.still('INVOKE_DEFAULT')
         r_left = requests.get(ip_left, auth=auth)
         r_right = requests.get(ip_right, auth=auth)
 
@@ -89,16 +97,26 @@ class capture_image_OT_operator(bpy.types.Operator):
     def capture_imgae_USB(self, usb_port_left, usb_port_right):
         pass
 
+class CancelCalibrationOperator(bpy.types.Operator):
+    bl_idname = "slam.cancel_calibration"
+    bl_label = "Cancel calibration"
+    bl_context = "scene"
+
+    def execute(self, context):
+        context.scene.CalibrationProperties.current_img_id = 1
+        context.scene.CalibrationProperties.is_calibrating = False
+        bpy.ops.slam.stop_still('INVOKE_DEFAULT')
+        return {'FINISHED'}
+
 
 class capture_image_OK_OT_operator(bpy.types.Operator):
     bl_idname = "slam.capture_image_ok"
     bl_label = "OK"
     bl_context = "scene"
 
-
     def execute(self, context):
         scene = context.scene
-        cal_props = scene.calibration_properties
+        cal_props = scene.CalibrationProperties
         cal_props.current_img_id += 1
         if cal_props.current_img_id > cal_props.n_imgs:
             cal_props.all_images_captured = True
@@ -114,9 +132,9 @@ class capture_image_recapture_OT_operator(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        cal_props = scene.calibration_properties
+        cal_props = scene.CalibrationProperties
         print(f'recapturing img {cal_props.current_img_id}...')
-        bpy.ops.slam.capture_image('INVOKE_DEFAULT')
+        bpy.ops.slam.fetch_image('INVOKE_DEFAULT')
         return {"FINISHED"}
 
 class compute_calibration_OT_operator(bpy.types.Operator):
@@ -126,24 +144,89 @@ class compute_calibration_OT_operator(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        cal_props = scene.calibration_properties
+        cal_props = scene.CalibrationProperties
         calibration = Calibrate(context)
         if cal_props.is_calibrated:
-            rectify_config = calibration.import_calibration_values()
+            bpy.ops.slam.import_yaml('INVOKE_DEFAULT')
         else:
             rectify_config = calibration.calibrate()
-        print(rectify_config)
+            print(rectify_config)
+
         self.end_calibration(context)
         return {"FINISHED"}
 
     def end_calibration(self, context):
-        context.scene.calibration_properties.is_calibrating = False
-        context.scene.calibration_properties.is_calibrated = True
+        bpy.ops.slam.end_calibration('INVOKE_DEFAULT')
+        context.scene.CalibrationProperties.is_calibrated = True
 
+
+class EndCalibration(bpy.types.Operator):
+    bl_idname = "slam.end_calibration"
+    bl_label = "End calibration"
+    bl_context = "scene"
+
+    def execute(self, context):
+        scene = context.scene
+        if scene.CalibrationProperties.calibration_method == "LIVE":
+            bpy.ops.slam.stop_still('INVOKE_DEFAULT')
+        context.scene.CalibrationProperties.is_calibrating = False
+        # context.scene.CalibrationProperties.is_calibrated = True
+        return {"FINISHED"}
+
+
+class StartCalibration(bpy.types.Operator):
+    bl_idname = "slam.start_calibration"
+    bl_label = "Start calibration"
+    bl_context = "scene"
+
+    def execute(self, context):
+        scene = context.scene
+
+        cal_props = context.scene.CalibrationProperties
+        cal_props.is_calibrating = True
+        if scene.CalibrationProperties.calibration_method == "LIVE":
+            bpy.ops.slam.start_still('INVOKE_DEFAULT')
+        if scene.CalibrationProperties.calibration_method != "YAML":
+            image_importer = image_to_plane.ImageImport(res_x=1024, res_y=720)
+            image_importer.initialize_planes()
+        return {"FINISHED"}
+
+class ImportYAMLFiles(bpy.types.Operator):
+    bl_idname = "slam.import_yaml"
+    bl_label = "Import YAML file from folder"
+    bl_context = "scene"
+
+    def execute(self, context):
+        scene = context.scene
+        cal_props = scene.CalibrationProperties
+        if scene.CalibrationProperties.path == "":
+            print("no (output) path given")
+            return {"FINISHED"}
+        calibration = Calibrate(context)
+        rectify_config = calibration.import_calibration_values()
+        print(rectify_config)
+        cal_props.is_calibrated = True
+        return {"FINISHED"}
+
+
+class RemoveCalibration(bpy.types.Operator):
+    bl_idname = "slam.remove_calibration"
+    bl_label = "Remove calibration"
+    bl_context = "scene"
+
+    def execute(self, context):
+        scene = context.scene
+        cal_props = scene.CalibrationProperties
+        cal_props.is_calibrated = False
+        cal_props.is_calibrating = False
+        cal_props.is_image_captured = False
+        cal_props.all_images_captured = False
+        cal_props.current_img_id = 1
+        return {"FINISHED"}
 
 class Calibrate:
     def __init__(self, context):
-        self.config = context.scene.calibration_properties
+        self.config = context.scene.CalibrationProperties
         self.CHESSBOARD_DIM = self.config.chess_dim_w, self.config.chess_dim_h
 
         # Set parameters for calibration
@@ -175,7 +258,7 @@ class Calibrate:
         flags = 0
         flags |= cv2.CALIB_FIX_INTRINSIC
         # Here we fix the intrinsic camara matrixes so that only Rot, Trns, Emat and Fmat are calculated.
-        # Hence intrinsic parameters are the same
+        # Hen   ce intrinsic parameters are the same
         criteria_stereo = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
         # This step is performed to transformation between the two cameras and calculate Essential and Fundamental matrix
@@ -244,18 +327,14 @@ class Calibrate:
         retL, cornersL = cv2.findChessboardCorners(outputL, self.CHESSBOARD_DIM, None)
 
         # If not found return none
-        if not retR or retL:
+        if not retR and not retL:
             print('Corners not found')
             # if self.live:
-            #     cv2.waitKey(0)
             return False, None, None
 
         cv2.cornerSubPix(imgR_gray, cornersR, (11, 11), (-1, -1), self.criteria)
         cv2.cornerSubPix(imgL_gray, cornersL, (11, 11), (-1, -1), self.criteria)
 
-        # if self.live:
-        #     imshow_concat('Corners', outputL, outputR)
-        #     cv2.waitKey(0)
         return True, cornersL, cornersR
 
     def import_calibration_values(self):
@@ -285,4 +364,9 @@ def yaml_file(path):
 
 def get_img_path(path, side, id):
     side_path = left_path(path) if side == 'left' else right_path(path)
-    return os.path.join(side_path, f'img{id}.png')
+    return os.path.join(side_path, f'Image{(id - 1):02d}.jpg')
+
+# DEPRICATED
+# def get_img_path(path, side, id):
+#     side_path = left_path(path) if side == 'left' else right_path(path)
+#     return os.path.join(side_path, f'img{id}.png')
