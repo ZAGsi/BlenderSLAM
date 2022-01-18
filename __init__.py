@@ -20,7 +20,8 @@ bl_info = {
 }
 
 modules = {"run": None,
-           "calibration": None}
+           "calibration": None,
+           "raspberrypi": None}
 
 
 for name in modules.keys():
@@ -31,6 +32,7 @@ classes = []
 for mod in modules.values():
     classes.extend(mod.classes)
 
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
@@ -38,12 +40,14 @@ def register():
     for mod in modules.values():
         mod.register()
 
+
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
     for mod in reversed(list(modules.values())):
         mod.unregister()
+
 
 if __name__ == '__main__':
     register()
