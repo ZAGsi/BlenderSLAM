@@ -42,7 +42,9 @@ class CalibrationGui(SLAM_template_gui, bpy.types.Panel):
                 row.prop(cal_props, "chess_dim_w")
                 row.prop(cal_props, "chess_dim_h")
                 row = layout.row(align=True)
-                row.prop(cal_props, "n_imgs")
+                row.prop(cal_props, "chess_dim_size")
+                row = layout.row(align=True)
+                row.prop(cal_props, "max_number_imgs")
                 row = layout.row(align=True)
                 row.operator("slam.calibrate")
 
@@ -50,12 +52,12 @@ class CalibrationGui(SLAM_template_gui, bpy.types.Panel):
         elif calibration_screen:
             if not cal_props.is_image_captured:
                 row = layout.row(align=True)
-                row.label(text=f"Image {cal_props.current_img_id}/{cal_props.n_imgs}.")
+                row.label(text=f"Image {cal_props.current_img_id}/{cal_props.max_number_imgs}.")
                 row = layout.row(align=True)
                 row.operator("slam.fetch_image")
             else:
                 row = layout.row(align=True)
-                row.label(text=f"Image {cal_props.current_img_id}/{cal_props.n_imgs}.")
+                row.label(text=f"Image {cal_props.current_img_id}/{cal_props.max_number_imgs}.")
                 row = layout.row(align=True)
                 row.operator("slam.capture_image_ok")
                 row = layout.row(align=True)

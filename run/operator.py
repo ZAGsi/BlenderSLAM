@@ -121,7 +121,7 @@ class SLAM_worker(Thread):
             return zip(point_cloud[pc_filter], colour[pc_filter])
 
         Q = np.identity(4, dtype='d')
-        Q[:, 3] = np.array([-self.cam.cx, -self.cam.cy, self.cam.fx,0])
+        Q[:, 3] = np.array([-self.cam.cx, -self.cam.cy, self.cam.fx, 0])
         Q[3, 2] = -1 / self.cam.baseline
 
         for i in range(len(self.dataset))[:self.max_images]:
@@ -173,8 +173,6 @@ class SLAM_worker(Thread):
                 self.pts.extend(pts)
                 self.dense_pts.extend(dense_pointclouds)
 
-
-
         print('num frames', len(self.durations))
         print('num keyframes', len(self.sptam.graph.keyframes()))
         print('average time', np.mean(self.durations))
@@ -225,19 +223,18 @@ class RunSLAM(bpy.types.Operator):
             normals = []
             colours = []
             # for pts in pts_list[self.last_idx:]:
-            for p,n,c in pts_list:
+            for p, n, c in pts_list:
                 vertices.append([p[0], p[2], p[1]])
                 normals.append([n[0], n[2], n[1]])
                 colours.append([c[0], c[1], c[2]])
             self.last_idx += 1
             sc_obj = self.create_pointcloud_object(f"sparse_{self.pc_idx}")
 
-
             sc = PCVControl(sc_obj)
             sc.draw(vs=vertices, ns=normals, cs=colours)
 
             # update previous keyframes position
-            for kf_id,kf_obj_name in self.dense_pc_objs.items():
+            for kf_id, kf_obj_name in self.dense_pc_objs.items():
                 position, orientation = kf_data[kf_id]
                 kf_obj = context.scene.objects[kf_obj_name]
                 update_pose(kf_obj, position, orientation)
@@ -245,9 +242,9 @@ class RunSLAM(bpy.types.Operator):
             for kf_id, dense_pts in dense_pts_list:
                 kf_obj_name = f"dense_{self.pc_idx}_{kf_id}"
                 dc_obj = self.create_pointcloud_object(kf_obj_name)
-                vertices,colours = [],[]
+                vertices, colours = [], []
 
-                for p,c in dense_pts:
+                for p, c in dense_pts:
                     vertices.append(list(p))
                     colours.append(list(c))
 
@@ -338,15 +335,16 @@ class CustomDataset(object):  # Stereo + IMU
 
         self.cam = dataset.StereoCamera(self.left_cam, self.right_cam)
 
-    def listdir(self, dir):
-        files = [_ for _ in os.listdir(dir) if _.endswith('.jpg')]
-        return [os.path.join(dir, _) for _ in self.sort(files)]
-
-    def sort(self, xs):
-        return sorted(xs, key=lambda x: float(x[:-4]))
+    def listdir(self, directory):
+        files = [_ for _ in os.listdir(directory) if self.is_image(_)]
+        return [os.path.join(directory, _) for _ in sorted(files)]
 
     def __len__(self):
         return len(self.left)
+
+    @staticmethod
+    def is_image(file):
+        return file.endswith('.jpg') or file.endswith('.png') or file.endswith('.raw')
 
     @staticmethod
     def import_calibration_values(YAML):

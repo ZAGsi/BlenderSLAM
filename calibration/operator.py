@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from ruamel import yaml
 from tqdm import tqdm
+from random import randint
 
 from . import image_to_plane
 
@@ -118,7 +119,7 @@ class capture_image_OK_OT_operator(bpy.types.Operator):
         scene = context.scene
         cal_props = scene.CalibrationProperties
         cal_props.current_img_id += 1
-        if cal_props.current_img_id > cal_props.n_imgs:
+        if cal_props.current_img_id > cal_props.max_number_imgs:
             cal_props.all_images_captured = True
         cal_props.is_image_captured = False
         return {"FINISHED"}
@@ -232,6 +233,8 @@ class Calibrate:
         # Set parameters for calibration
         self.objp = np.zeros((self.config.chess_dim_w * self.config.chess_dim_h, 3), np.float32)
         self.objp[:, :2] = np.mgrid[0:self.config.chess_dim_w, 0:self.config.chess_dim_h].T.reshape(-1, 2)
+        self.objp[:, :2] *= self.config.chess_dim_size  # only needed to get the real unit size
+
         # Termination criteria for refining the detected corners
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
@@ -243,7 +246,7 @@ class Calibrate:
             os.makedirs(right_path(self.config.path))
 
     def calibrate(self):
-        img_ptsL, img_ptsR, obj_pts, img_res = self.get_images()
+        img_ptsL, img_ptsR, obj_pts, img_res = self.get_image_pts()
 
         # Calibrating left camera
         retL, mtxL, distL, rvecsL, tvecsL = cv2.calibrateCamera(obj_pts, img_ptsL, img_res, None, None)
@@ -255,18 +258,17 @@ class Calibrate:
         wR, hR = img_res
         new_mtxR, roiR = cv2.getOptimalNewCameraMatrix(mtxR, distR, (wR, hR), 1, (wR, hR))
 
-        flags = 0
-        flags |= cv2.CALIB_FIX_INTRINSIC
         # Here we fix the intrinsic camara matrixes so that only Rot, Trns, Emat and Fmat are calculated.
         # Hen   ce intrinsic parameters are the same
-        criteria_stereo = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        flags = 0
+        flags |= cv2.CALIB_FIX_INTRINSIC
 
         # This step is performed to transformation between the two cameras and calculate Essential and Fundamental matrix
         retS, new_mtxL, distL, new_mtxR, distR, Rot, Trns, Emat, Fmat = cv2.stereoCalibrate(obj_pts, img_ptsL, img_ptsR,
                                                                                             new_mtxL, distL, new_mtxR,
                                                                                             distR,
                                                                                             img_res,
-                                                                                            criteria_stereo, flags)
+                                                                                            self.criteria, flags)
         print(f"Saving parameters to {yaml_file(self.config.path)}......")
         calibration = {"cam0": {"intrinsics": new_mtxL.tolist(),
                                 "distortion_coeffs": distL.tolist(),
@@ -284,7 +286,7 @@ class Calibrate:
             yaml.dump(calibration, outfile, block_seq_indent=2)
 
         rectify_scale = 1
-        rectify_config = {"cameraMatrix1": new_mtxL,
+        stereo_config = {"cameraMatrix1": new_mtxL,
                           "distCoeffs1": distL,
                           "cameraMatrix2": new_mtxR,
                           "distCoeffs2": distR,
@@ -292,57 +294,62 @@ class Calibrate:
                           "R": Rot,
                           "T": Trns,
                           "newImageSize": (0, 0)}
-        return rectify_config
+        mean_error_left = self.mean_error(obj_pts, rvecsL, tvecsL, new_mtxL, distL, img_ptsL)
+        mean_error_right = self.mean_error(obj_pts, rvecsR, tvecsR, new_mtxR, distR, img_ptsR)
+        rect_l, rect_r, proj_mat_l, proj_mat_r, Q, roi_l, roi_r = cv2.stereoRectify(**stereo_config,
+                                                                                    flags=cv2.CALIB_ZERO_DISPARITY)
+        baseline = self.get_baseline(Q)
+        print(f"Mean pixel error in left images: {mean_error_left}.")
+        print(f"Mean pixel error in right images: {mean_error_right}.")
+        print(f"Calculated baseline: {baseline} mm.")
+        return stereo_config
 
-    def get_images(self):
-        img_ptsL = []
-        img_ptsR = []
+    def get_image_pts(self):
+        img_pts_left = []
+        img_pts_right = []
         obj_pts = []
-        imgL_gray = None
+        img_left_gray = None
 
-        for i in tqdm(range(1, 12)):
-            left_img_path = get_img_path(self.config.path, 'left', i)
-            right_img_path = get_img_path(self.config.path, 'right', i)
-            imgL = cv2.imread(left_img_path)
-            imgR = cv2.imread(right_img_path)
-            imgL_gray = cv2.imread(left_img_path, 0)
-            imgR_gray = cv2.imread(right_img_path, 0)
+        left_imgs = self.listdir(left_path(self.config.path))
+        right_imgs = self.listdir(right_path(self.config.path))
+        for _ in tqdm(range(len(left_imgs))):
+            # Get a random image from the list
+            idx = randint(0, len(left_imgs)-1)
+            left_img_path, right_img_path = left_imgs.pop(idx), right_imgs.pop(idx)
+            img_left, img_left_gray = cv2.imread(left_img_path), cv2.imread(left_img_path, 0)
+            img_right, img_right_gray = cv2.imread(right_img_path), cv2.imread(right_img_path, 0)
 
-            ret, cornersL, cornersR = self.find_chessboard_corners(imgL, imgR, imgL_gray, imgR_gray)
-            if ret:
+            # Find corners
+            ret_left, corners_left = self.find_chessboard_corners(img_left, img_left_gray)
+            ret_right, corners_right= self.find_chessboard_corners(img_right, img_right_gray)
+
+            # Add corners to img_pts if corners are found
+            if ret_left and ret_right:
                 obj_pts.append(self.objp)
-                img_ptsL.append(cornersL)
-                img_ptsR.append(cornersR)
+                img_pts_left.append(corners_left)
+                img_pts_right.append(corners_right)
 
         img_res = (0, 0)
-        if imgL_gray is not None:
-            img_res = imgL_gray.shape[::-1]
-        return img_ptsL, img_ptsR, obj_pts, img_res
+        if img_left_gray is not None:
+            img_res = img_left_gray.shape[::-1]
+        return img_pts_left, img_pts_right, obj_pts, img_res
 
-    def find_chessboard_corners(self, imgL, imgR, imgL_gray, imgR_gray):
-        outputL = imgL.copy()
-        outputR = imgR.copy()
-
-        retR, cornersR = cv2.findChessboardCorners(outputR, self.CHESSBOARD_DIM, None)
-        retL, cornersL = cv2.findChessboardCorners(outputL, self.CHESSBOARD_DIM, None)
-
-        # If not found return none
-        if not retR and not retL:
+    def find_chessboard_corners(self, img, img_gray):
+        output = img.copy()
+        ret, corners = cv2.findChessboardCorners(output, self.CHESSBOARD_DIM, None)
+        if not ret:
             print('Corners not found')
-            # if self.live:
-            return False, None, None
+            return False, None
 
-        cv2.cornerSubPix(imgR_gray, cornersR, (11, 11), (-1, -1), self.criteria)
-        cv2.cornerSubPix(imgL_gray, cornersL, (11, 11), (-1, -1), self.criteria)
-
-        return True, cornersL, cornersR
+        cv2.cornerSubPix(img_gray, corners, (11, 11), (-1, -1), self.criteria)
+        return True, corners
 
     def import_calibration_values(self):
         with open(yaml_file(self.config.path), 'r') as stream:
             calibration = yaml.safe_load(stream)
 
         rectify_scale = 1
-        rectify_config = {"cameraMatrix1": np.matrix(calibration["cam0"]["intrinsics"]),
+        stereo_config = {"cameraMatrix1": np.matrix(calibration["cam0"]["intrinsics"]),
                   "distCoeffs1": np.matrix(calibration["cam0"]["distortion_coeffs"]),
                   "cameraMatrix2": np.matrix(calibration["cam1"]["intrinsics"]),
                   "distCoeffs2": np.matrix(calibration["cam1"]["distortion_coeffs"]),
@@ -351,16 +358,41 @@ class Calibrate:
                   "T": np.matrix(calibration["cam1"]["translation"]),
                   "newImageSize": (0, 0)}
 
-        return rectify_config
+        return stereo_config
+
+    @staticmethod
+    def mean_error(obj_pts, rvec, tvec, new_mtx, dist, img_pts):
+        total_error = 0
+        for i, obj_pt in enumerate(obj_pts):
+            reprojected_img_pts, _ = cv2.projectPoints(obj_pt, rvec[i], tvec[i], new_mtx, dist)
+            error = cv2.norm(img_pts[i], reprojected_img_pts, cv2.NORM_L2) / len(reprojected_img_pts)
+            total_error += error
+        return total_error / len(obj_pts)
+
+    @staticmethod
+    def get_baseline(Q):
+        return 1 / Q[3, 2]
+
+    def listdir(self, directory):
+        files = [_ for _ in os.listdir(directory) if self.is_image(_)]
+        return [os.path.join(directory, _) for _ in sorted(files)]
+
+    @staticmethod
+    def is_image(file):
+        return file.endswith('.jpg') or file.endswith('.png') or file.endswith('.raw')
+
 
 def left_path(path):
     return os.path.join(path, "left")
 
+
 def right_path(path):
     return os.path.join(path, "right")
 
+
 def yaml_file(path):
     return os.path.join(path, "stereo_parameters.yaml")
+
 
 def get_img_path(path, side, id):
     side_path = left_path(path) if side == 'left' else right_path(path)
