@@ -6,10 +6,12 @@ import numpy as np
 import g2o
 import cv2
 
-from threading import Thread,  Lock
+from threading import Thread, Lock
 from space_view3d_point_cloud_visualizer import PCVControl
 from ruamel import yaml
 from mathutils import Matrix
+from math import radians
+from elas import Elas
 
 from ..SLAM.stereo_ptam import components
 from ..SLAM.stereo_ptam import dataset
@@ -18,6 +20,7 @@ from ..SLAM.stereo_ptam.feature import ImageFeature
 from ..SLAM.stereo_ptam.params import ParamsKITTI, ParamsEuroc
 from ..SLAM.stereo_ptam.dataset import KITTIOdometry, EuRoCDataset
 from ..SLAM.stereo_ptam.sptam import SPTAM
+
 
 class SLAM_worker(Thread):
 
@@ -42,6 +45,10 @@ class SLAM_worker(Thread):
         self.current_position = None
         self.current_orientation = None
 
+        # Dense frame properties
+        self.dense_frame_frequency = 10
+        self.elas = Elas()
+        self.dense_pts = []
 
     def start(self):
         if self.config.standard_set.lower() == 'kitti':
@@ -52,6 +59,13 @@ class SLAM_worker(Thread):
             dataset = EuRoCDataset(self.config.path)
         else:
             params = ParamsKITTI(self.props.feature_descriptor)  # TODO: maybe have a custom Params creator?
+
+            # change param variables from m to mm
+            params.frustum_near *= 1000
+            params.frustum_far *= 1000
+            params.lc_max_inbetween_distance *= 1000
+            params.lc_distance_threshold *= 1000
+
             dataset = CustomDataset(self.context)
         self.sptam = SPTAM(params)
 
@@ -73,10 +87,47 @@ class SLAM_worker(Thread):
         Thread.start(self)
 
     def stop(self):
-        self.running = False
+        self.is_running = False
 
     def run(self):
+        def add_dense_pointcloud(keyframe):
+            print("compute dense frame", keyframe.id)
+            if len(self.dataset.left[i].shape) == 3:
+                left = self.dataset.left[i] / 255
+                # turn to B&W
+                left_bw = cv2.cvtColor(self.dataset.left[i], cv2.COLOR_BGR2GRAY)
+                right_bw = cv2.cvtColor(self.dataset.right[i], cv2.COLOR_BGR2GRAY)
+            else:
+                left = cv2.cvtColor(self.dataset.left[i], cv2.COLOR_GRAY2BGR) / 255
+                left_bw = self.dataset.left[i]
+                right_bw = self.dataset.right[i]
+
+            # create disparity images
+            disp_left, disp_right = self.elas.process(left_bw, right_bw)
+
+            # reproject to 3D and reshape array to list of 3D vectors
+            point_cloud = cv2.reprojectImageTo3D(disparity=disp_left, Q=Q).reshape(-1, 3)
+            colour = left.reshape(-1, 3)
+
+            # remove all points that are in the back of the frame (Z-value)
+            point_cloud[point_cloud[:, 2] > 0] = None
+            # remove all points outside view frustum
+            depth = np.linalg.norm(point_cloud, axis=1)
+            point_cloud[depth < self.cam.frustum_near] = None
+            point_cloud[depth > self.cam.frustum_far] = None
+
+            # use np.isnan as a filter to remove all data values
+            pc_filter = ~np.isnan(point_cloud).any(axis=1)
+            return zip(point_cloud[pc_filter], colour[pc_filter])
+
+        Q = np.identity(4, dtype='d')
+        Q[:, 3] = np.array([-self.cam.cx, -self.cam.cy, self.cam.fx,0])
+        Q[3, 2] = -1 / self.cam.baseline
+
         for i in range(len(self.dataset))[:self.max_images]:
+            if not self.is_running:
+                break
+
             featurel = ImageFeature(self.dataset.left[i], self.params)
             featurer = ImageFeature(self.dataset.right[i], self.params)
             timestamp = self.dataset.timestamps[i]
@@ -91,12 +142,12 @@ class SLAM_worker(Thread):
             frame = StereoFrame(i, g2o.Isometry3d(), featurel, featurer, self.cam, timestamp=timestamp)
 
             if not self.sptam.is_initialized():
-                self.sptam.initialize(frame)
-                # try:
-                #     self.sptam.initialize(frame)
-                # except AssertionError:
-                #     print(f'unable to match points in image {i:06d}')
-                #     continue
+                # self.sptam.initialize(frame)
+                try:
+                    self.sptam.initialize(frame)
+                except AssertionError as e:
+                    print(f'unable to match points in image {i:06d}: {e}')
+                    continue
             else:
                 self.sptam.track(frame)
 
@@ -107,27 +158,29 @@ class SLAM_worker(Thread):
             print()
 
             pts = []
+            dense_pointclouds = []
             for kf in self.sptam.graph.keyframes()[-20:]:
                 if kf.id not in self.saved_keyframes:
+                    # add a dense cloud where keyframe is
+                    if kf.id % self.dense_frame_frequency == 0:
+                        dense_pointclouds.append([kf.id, add_dense_pointcloud(kf)])
                     self.saved_keyframes.add(kf.id)
                     for m in kf.measurements():
                         if m.from_triangulation():
                             pts.append([m.mappoint.position, m.mappoint.normal, m.mappoint.color])
 
             with self.lock:
-                self.pts.append(pts)
-                self.current_orientation = frame.orientation
-                self.current_position = frame.position
+                self.pts.extend(pts)
+                self.dense_pts.extend(dense_pointclouds)
 
-            # break if process is cancelled
-            if not self.is_running:
-                break
+
 
         print('num frames', len(self.durations))
         print('num keyframes', len(self.sptam.graph.keyframes()))
         print('average time', np.mean(self.durations))
         self.is_running = False
         self.sptam.stop()
+
 
 class RunSLAM(bpy.types.Operator):
     bl_idname = "slam.run_slam"
@@ -141,13 +194,20 @@ class RunSLAM(bpy.types.Operator):
     last_idx = 0
 
     def modal(self, context, event):
+        def update_pose(obj, position, orientation):
+            # change y and z axis
+            obj.location = [position[0], position[2], position[1]]
+            euler_rotation = Matrix(orientation).to_euler()
+            obj.rotation_euler = [euler_rotation.x + radians(90), euler_rotation.z + radians(180), -euler_rotation.y]
+
         process_cancelled = event.type == 'ESC'
         process_finished = not self.t.is_running
 
         # Stop the thread if ESCAPE is pressed.
         if process_cancelled:
-            if self.t is not None:
-                self.t.stop()
+            with self.lock:
+                if self.t is not None:
+                    self.t.stop()
             if self.timer is not None:
                 context.window_manager.event_timer_remove(self.timer)
             return {'CANCELLED'}
@@ -158,31 +218,51 @@ class RunSLAM(bpy.types.Operator):
                 if len(self.t.pts) < 1:
                     return {'PASS_THROUGH'}
                 pts_list, self.t.pts = self.t.pts, []
-                current_orientation = self.t.current_orientation.matrix()
-                current_position = self.t.current_position
+                dense_pts_list, self.t.dense_pts = self.t.dense_pts, []
+                kf_data = {kf.id: (kf.position, kf.orientation.matrix()) for kf in self.t.sptam.graph.keyframes()}
+
             vertices = []
             normals = []
             colours = []
             # for pts in pts_list[self.last_idx:]:
-            for pts in pts_list:
-                for pt in pts:
-                    p, n, c = pt
-
-                    vertices.append([p[0], p[2], p[1]])
-                    normals.append([n[0], n[2], n[1]])
-                    colours.append([c[0], c[1], c[2]])
-                self.last_idx += 1
+            for p,n,c in pts_list:
+                vertices.append([p[0], p[2], p[1]])
+                normals.append([n[0], n[2], n[1]])
+                colours.append([c[0], c[1], c[2]])
+            self.last_idx += 1
             sc_obj = self.create_pointcloud_object(f"sparse_{self.pc_idx}")
-            dc_obj = self.create_pointcloud_object(f"dense_{self.pc_idx}")
 
-            dc_obj.location = current_position
-            dc_obj.rotation_euler = Matrix(current_orientation).to_euler()
+
+            sc = PCVControl(sc_obj)
+            sc.draw(vs=vertices, ns=normals, cs=colours)
+
+            # update previous keyframes position
+            for kf_id,kf_obj_name in self.dense_pc_objs.items():
+                position, orientation = kf_data[kf_id]
+                kf_obj = context.scene.objects[kf_obj_name]
+                update_pose(kf_obj, position, orientation)
+
+            for kf_id, dense_pts in dense_pts_list:
+                kf_obj_name = f"dense_{self.pc_idx}_{kf_id}"
+                dc_obj = self.create_pointcloud_object(kf_obj_name)
+                vertices,colours = [],[]
+
+                for p,c in dense_pts:
+                    vertices.append(list(p))
+                    colours.append(list(c))
+
+                # update keyframe position
+                position, orientation = kf_data[kf_id]
+                update_pose(dc_obj, position, orientation)
+
+                # draw dense point cloud using PointCloudViewer
+                dc = PCVControl(dc_obj)
+                dc.draw(vs=vertices, cs=colours)
+
+                # add dense point cloud to dictionary, to enable updating position and orientation
+                self.dense_pc_objs[kf_id] = kf_obj_name
 
             self.pc_idx += 1
-            sc = PCVControl(sc_obj)
-            sc.draw(vertices, normals, colours)
-            # dc = PCVControl(dc_obj)
-            # dc.draw(vertices, normals, colours)
 
         if process_finished:
             print("SLAM finished")
@@ -198,6 +278,7 @@ class RunSLAM(bpy.types.Operator):
         self.lock = Lock()
         self.t = SLAM_worker(self.lock)
         self.t.start()
+        self.dense_pc_objs = {}
 
         wm = context.window_manager
         self.timer = wm.event_timer_add(time_step=self.props.update_speed, window=context.window)
@@ -207,7 +288,7 @@ class RunSLAM(bpy.types.Operator):
     @staticmethod
     def create_pointcloud_object(name):
         mesh = bpy.data.meshes.new("geom_" + name)
-        obj = bpy.data.objects.new("pointcloud_" + name, mesh)
+        obj = bpy.data.objects.new(name, mesh)
         col = bpy.data.collections.get("Collection")
         col.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
@@ -262,7 +343,7 @@ class CustomDataset(object):  # Stereo + IMU
         return [os.path.join(dir, _) for _ in self.sort(files)]
 
     def sort(self, xs):
-        return sorted(xs, key=lambda x:float(x[:-4]))
+        return sorted(xs, key=lambda x: float(x[:-4]))
 
     def __len__(self):
         return len(self.left)
