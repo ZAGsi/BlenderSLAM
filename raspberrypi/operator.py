@@ -8,15 +8,6 @@ class BatchExecutor:
         dir_name = os.path.dirname(__file__)
         subprocess.run(commands, cwd=os.path.join(dir_name, 'bat'), shell=True)
 
-# image_capture (MODAL) (Start/Stop) --> fetchNSeconds.bat ## DEPRECATED ##
-# class capture_image_OT_operator(bpy.types.Operator, BatchExecutor):
-#     bl_idname = "slam.capture_image"
-#     bl_label = "Capture image"
-#     bl_context = "scene"
-#
-#     def execute(self, context):
-#         self.call_subprocess(['StartFetching.bat'])
-
 
 class FindRPI(Operator, BatchExecutor):
     bl_idname = "slam.find_rpi"
